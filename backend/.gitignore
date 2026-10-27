@@ -1,0 +1,30 @@
+# ============================================================
+# Smart Office Automation — Backend .gitignore
+# ============================================================
+
+# ── Node / NPM ───────────────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+*.log
+
+# ── Environment / Secrets ────────────────────────────────────
+.env
+.env.local
+.env.production
+.env.staging
+# Keep the example file (safe, no real secrets)
+!.env.example
+
+# ── Runtime ──────────────────────────────────────────────────
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# ── OS / Editor ──────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+.idea/
