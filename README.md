@@ -305,8 +305,8 @@ POST authentication uses `Authorization: Bearer <token>` and compares SHA-256
 digests using a constant-time comparison. Missing/wrong credentials return 401.
 The payload must contain exactly temperature, humidity, light, smoke (finite
 JSON numbers) and occupancy, lightStatus, fanStatus, acStatus, alarmStatus
-(JSON booleans). Missing/extra fields, incorrect types, invalid JSON and oversized
-JSON return 400. Validation does not alter simulation thresholds. GET and WS
+(JSON booleans). Missing/extra fields, incorrect types and invalid JSON return 400.
+Telemetry JSON exceeding 16 KB returns 413. Validation does not alter simulation thresholds. GET and WS
 remain public read interfaces; HTTP CORS is not writer authentication.
 
 ### Deployment procedure — requires approval

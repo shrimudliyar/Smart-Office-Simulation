@@ -42,15 +42,6 @@ app.use(cors({
   credentials: true,
 }));
 
-app.use('/api/office/update', authenticateTelemetry);
-app.use(express.json({ limit: '16kb' }));
-app.use((error, _req, res, next) => {
-  if (error.type === 'entity.parse.failed' || error.type === 'entity.too.large') {
-    return res.status(400).json({ error: 'Invalid JSON payload' });
-  }
-  next(error);
-});
-
 
 /* ------------------------------------------------------------------ *
  *  HTTP + WebSocket server                                            *
@@ -138,7 +129,8 @@ app.get("/api/office/status", (_req, res) => {
 
 
 /* Receive sensor data from the Python bridge */
-app.post("/api/office/update", validateTelemetry, (req, res) => {
+app.post("/api/office/update", authenticateTelemetry,
+  express.json({ limit: '16kb' }), validateTelemetry, (req, res) => {
 
   const data = req.body;
 
@@ -189,6 +181,16 @@ app.post("/api/office/update", validateTelemetry, (req, res) => {
 
 });
 
+// Parser errors must be handled after the route that invokes the parser.
+app.use((error, _req, res, next) => {
+  if (error.type === 'entity.too.large') {
+    return res.status(413).json({ error: 'Telemetry payload exceeds 16 KB' });
+  }
+  if (error.type === 'entity.parse.failed') {
+    return res.status(400).json({ error: 'Invalid JSON payload' });
+  }
+  next(error);
+});
 
 /* ------------------------------------------------------------------ *
  *  Start server                                                       *

@@ -63,3 +63,31 @@ test('unconfigured local mode accepts original bridge payload', { timeout: 10000
     headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
   assert.equal(response.status, 200);
 });
+
+test('oversized authenticated JSON returns 413 without state changes or broadcasts', { timeout: 10000 }, async t => {
+  const base = await start(t, true);
+  const ws = new WebSocket(base.replace('http:', 'ws:'));
+  t.after(() => ws.terminate());
+  await once(ws, 'message'); // Exclude initial snapshot.
+  const messages = [];
+  ws.on('message', data => messages.push(JSON.parse(data)));
+  const initial = await (await fetch(base + '/api/office/status')).json();
+  // Valid fields/types with JSON whitespace padding: only the byte limit can reject it.
+  const oversized = JSON.stringify(payload) + ' '.repeat(16 * 1024);
+  assert.ok(Buffer.byteLength(oversized) > 16 * 1024);
+  const post = body => fetch(base + '/api/office/update', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-only-token' }, body });
+  const response = await post(oversized);
+  assert.equal(response.status, 413);
+  await response.json();
+  assert.deepEqual(await (await fetch(base + '/api/office/status')).json(), initial);
+  await new Promise(resolve => setTimeout(resolve, 200));
+  assert.deepEqual(messages, []);
+  // Prove the same connection still receives accepted, under-limit telemetry.
+  const valid = JSON.stringify(payload);
+  assert.ok(Buffer.byteLength(valid) < 16 * 1024);
+  const fresh = once(ws, 'message');
+  assert.equal((await post(valid)).status, 200);
+  assert.equal(JSON.parse((await fresh)[0]).data.temperature, payload.temperature);
+  assert.equal(messages.length, 1);
+});
