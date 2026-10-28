@@ -2,6 +2,10 @@ const express = require("express");
 const cors = require("cors");
 const http = require("http");
 const { WebSocketServer } = require("ws");
+const { telemetryAuth, validateTelemetry } = require('./telemetry');
+
+// Validate production configuration before opening any listening socket.
+const authenticateTelemetry = telemetryAuth();
 
 const app = express();
 
@@ -38,7 +42,14 @@ app.use(cors({
   credentials: true,
 }));
 
-app.use(express.json());
+app.use('/api/office/update', authenticateTelemetry);
+app.use(express.json({ limit: '16kb' }));
+app.use((error, _req, res, next) => {
+  if (error.type === 'entity.parse.failed' || error.type === 'entity.too.large') {
+    return res.status(400).json({ error: 'Invalid JSON payload' });
+  }
+  next(error);
+});
 
 
 /* ------------------------------------------------------------------ *
@@ -127,7 +138,7 @@ app.get("/api/office/status", (_req, res) => {
 
 
 /* Receive sensor data from the Python bridge */
-app.post("/api/office/update", (req, res) => {
+app.post("/api/office/update", validateTelemetry, (req, res) => {
 
   const data = req.body;
 
