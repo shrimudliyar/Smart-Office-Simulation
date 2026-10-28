@@ -266,3 +266,117 @@ Do not publish unauthenticated telemetry update or serial ports to the internet.
 Resolve production type/build issues and validate a fresh installation before claiming
 production readiness. No clean-machine install, production build or browser validation
 was performed as part of packaging. Original working source files were copied unchanged.
+
+## Secure Cooja telemetry (deployment pending approval)
+
+Baseline deployed commit: `898e11e45a6c81813f296e99218f904265194946`.
+The dashboard already connects to Render; the original Python bridge posted only
+into local Node. Cloud integration changes the ingestion destination, not the UI,
+sensor mappings, thresholds, Cooja socket, or OFFICE_UPDATE structure.
+
+### Local workflow
+
+```bash
+cd backend
+npm ci
+npm start
+# In another terminal, in the existing Cooja environment:
+cd /home/parag/contiki-ng/examples/smart-office
+python3 -u cooja-bridge.py
+```
+
+Use the existing Cooja launch/simulation workflow. The bridge still reads
+127.0.0.1:60002. No token is needed for an unconfigured development backend.
+Unset NODE_API_URL, NODE_API, and TELEMETRY_API_TOKEN to return to that mode.
+Production (`NODE_ENV=production` or Render's `RENDER=true`) refuses startup
+without TELEMETRY_API_TOKEN. When a token is configured in any mode, it is required.
+
+### Environment variables and authentication
+
+- `NODE_API_URL`: bridge destination; defaults to http://localhost:5000/api/office/update.
+- `NODE_API`: legacy bridge destination fallback; NODE_API_URL takes precedence.
+- `TELEMETRY_API_TOKEN`: shared backend/bridge secret. Never set it in React or VITE_*.
+- `TELEMETRY_HTTP_TIMEOUT`: bridge timeout in seconds; default 15, greater than 0 and at most 120.
+- `NODE_ENV=production`: explicitly enforce production authentication.
+- `FRONTEND_URL`: preserve https://smart-office-simulation.vercel.app.
+- `PORT`: injected by Render, with local fallback 5000; do not change it for this integration.
+
+POST authentication uses `Authorization: Bearer <token>` and compares SHA-256
+digests using a constant-time comparison. Missing/wrong credentials return 401.
+The payload must contain exactly temperature, humidity, light, smoke (finite
+JSON numbers) and occupancy, lightStatus, fanStatus, acStatus, alarmStatus
+(JSON booleans). Missing/extra fields, incorrect types and invalid JSON return 400.
+Telemetry JSON exceeding 16 KB returns 413. Validation does not alter simulation thresholds. GET and WS
+remain public read interfaces; HTTP CORS is not writer authentication.
+
+### Deployment procedure — requires approval
+
+1. Review the feature branch and tests; do not push or merge without approval.
+2. Confirm an operator can set Render secrets. Use a password manager to create a
+   strong random token only as part of the approved deployment procedure.
+3. Set TELEMETRY_API_TOKEN and NODE_ENV=production in Render. Keep existing
+   FRONTEND_URL, root backend/, build npm install, start npm start. Saving Render
+   environment changes may redeploy/restart the service: this is a production action.
+4. Deploy the reviewed commit through the approved PR/merge process. On-Commit
+   Auto-Deploy means a main push/merge triggers deployment. Confirm the deployed SHA
+   and healthy startup. The old backend does not enforce the token until upgraded.
+5. Install the reviewed repository cooja-simulation/cooja-bridge.py into the original
+   Cooja project only after backing up that external file. This repository copy is
+   included in the PR; /home/parag/... is outside Git and is a separate installation.
+6. Set the same secret in the bridge terminal using hidden input, not a literal
+   shell command or committed file:
+
+```bash
+cd /home/parag/contiki-ng/examples/smart-office
+read -rsp 'Telemetry token: ' TELEMETRY_API_TOKEN; echo
+export TELEMETRY_API_TOKEN
+export NODE_API_URL=https://smart-office-simulation.onrender.com/api/office/update
+export TELEMETRY_HTTP_TIMEOUT=30
+python3 -u cooja-bridge.py
+# After stopping this bridge intentionally:
+unset TELEMETRY_API_TOKEN NODE_API_URL TELEMETRY_HTTP_TIMEOUT
+```
+
+Do not start a second bridge while the original owns the Cooja serial connection.
+Coordinate an approved bridge switch; do not stop Cooja or change its configuration.
+The frontend already uses Render WSS and needs no Vercel changes or secrets.
+
+### Verification and troubleshooting
+
+```bash
+cd backend
+npm test
+cd ..
+python3 -m unittest discover -s cooja-simulation/tests -v
+```
+
+Tests use temporary local backends and mocked Python I/O; never send test payloads
+to Render. After approved deployment, compare at least three genuine Cooja DATA
+records with bridge accepted logs, advancing Render GET /api/office/status
+lastUpdated values, matching sensor values and fresh OFFICE_UPDATE frames in
+Vercel browser DevTools. Verify Open Workspace room-2 changes. An initial snapshot
+or HTTP 200 alone does not prove the entire chain. Analytics/history remain mock.
+
+401 means credentials are missing/wrong. 400 means invalid fields/types/JSON.
+Startup configuration errors mean the production token is absent. Connection errors
+can mean Cooja serial socket availability, Render startup delay, or network failure.
+The bridge stops explicitly on failed delivery/parsing; it does not silently continue
+or automatically replay. A timeout may occur after acceptance: inspect the timestamp
+before restarting. No durable queue is provided. Remote destinations require HTTPS
+and a token; redirects are refused to avoid credential forwarding. The token is an
+environment secret and must be kept out of logs, shell history, and source control.
+
+### Rollback
+
+Before production, keep the prior Render commit ID and original bridge backup.
+This preparation's original bridge backup is outside Git at
+/mnt/c/Users/panai/smart-office-backups/pre-live-cooja/cooja-bridge.py.
+A local Git tag backup/pre-live-cooja-898e11e preserves the baseline commit.
+Restore the external bridge from that backup and unset cloud variables for local
+mode; coordinate stopping/restarting the bridge separately. No simulation changes
+need reverting. To roll back production, use the approved Render rollback process
+or a reviewed Git revert; coordinate Auto-Deploy so it does not overwrite rollback.
+The old backend is unauthenticated: rolling it back reopens ingestion. Prefer a
+forward fix or disable public ingestion rather than restoring an insecure writer.
+Revoke/rotate the telemetry secret if exposure is suspected. Backend state is
+in-memory and resets on restart.
